@@ -154,12 +154,17 @@ func (o *PassKeyUser) AddCredential(credential *webauthn.Credential) error {
 }
 
 func (o *PassKeyUser) UpdateCredential(credential *webauthn.Credential) error {
-	err := o.query.UpdateCredential(context.Background(), sqlc.UpdateCredentialParams{
-		ID:        credential.ID,
-		SignCount: int64(credential.Authenticator.SignCount),
-	})
-	if err != nil {
-		return err
+	if credential == nil {
+		return nil
 	}
+
+	// Only update if authenticator provides a non-zero counter
+	if credential.Authenticator.SignCount > 0 {
+		return o.query.UpdateCredential(context.Background(), sqlc.UpdateCredentialParams{
+			ID:        credential.ID,
+			SignCount: int64(credential.Authenticator.SignCount),
+		})
+	}
+
 	return nil
 }
