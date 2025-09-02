@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Passkey</title>
+</head>
+<body>
+
+<div>
+    <div>
+        <h1 >🔑 Passkey</h1>
+        <div id="message"></div>
+        <div >
+            <input type="text" class="form-control" id="email" placeholder="email">
+        </div>
+        <div >
+            <div >
+                <div >
+                    <button id="registerButton">Register</button>
+                </div>
+                <div >
+                    <button id="loginButton">Login</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
+
+<script>
+    
+document.getElementById("registerButton").addEventListener("click", register);
+document.getElementById("loginButton").addEventListener("click", login);
+
+function showMessage(message, isError = false) {
+    const messageElement = document.getElementById("message");
+    messageElement.textContent = message;
+    messageElement.style.color = isError ? "red" : "green";
+}
+
+async function register() {
+    // Retrieve the username from the input field
+    const email = document.getElementById("email").value;
+
+    try {
+        // Get registration options from your server. Here, we also receive the challenge.
+        const response = await fetch("/api/auth/passkey/initialize-start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email }),
+        });
+
+        // Check if the registration options are ok.
+        if (!response.ok) {
+            const msg = await response.json();
+            throw new Error(
+                "User already exists or failed to get registration options from server: " +
+                msg,
+            );
+        }
+
+        const resp = await response.json();
+
+        // This triggers the browser to display the passkey / WebAuthn modal (e.g. Face ID, Touch ID, Windows Hello).
+        // A new attestation is created. This also means a new public-private-key pair is created.
+        const attestationResponse = await SimpleWebAuthnBrowser.startRegistration({ optionsJSON: resp.opts.publicKey });
+
+        // Send attestationResponse back to server for verification and storage.
+        const verificationResponse = await fetch(
+            "/api/auth/passkey/initialize-finish",
+            {
+                method: "POST",
+                headers: {
+                    sid: resp.sid,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(attestationResponse),
+            },
+        );
+
+        const msg = await verificationResponse.json();
+        if (verificationResponse.ok) {
+            showMessage(msg, false);
+        } else {
+            showMessage(msg, true);
+        }
+        
+    } catch (error) {
+        showMessage("Error: " + error.message, true);
+    }
+}
+
+async function login() {
+    try {
+        // Get login options from your server. Here, we also receive the challenge.
+        const response = await fetch("/api/auth/passkey/login-start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+        });
+        // Check if the login options are ok.
+        if (!response.ok) {
+            const msg = await response.json();
+            throw new Error("Failed to get login options from server: " + msg);
+        }
+        // Convert the login options to JSON.
+        const resp = await response.json();
+
+        // This triggers the browser to display the passkey / WebAuthn modal (e.g. Face ID, Touch ID, Windows Hello).
+        // A new assertionResponse is created. This also means that the challenge has been signed.
+        const assertionResponse = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON: resp.opts.publicKey });
+
+        // Send assertionResponse back to server for verification.
+        const verificationResponse = await fetch("/api/auth/passkey/login-finish", {
+            method: "POST",
+            headers: {
+                sid: resp.sid,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(assertionResponse),
+        });
+
+        const msg = await verificationResponse.json();
+        if (verificationResponse.ok) {
+            showMessage(msg, false);
+        } else {
+            showMessage(msg, true);
+        }
+    } catch (error) {
+        showMessage("Error: " + error.message, true);
+    }
+}
+    
+</script>
+
+</body>
+</html>
